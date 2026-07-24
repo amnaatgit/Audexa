@@ -3,7 +3,7 @@
   "version": "4.0.0",
   "description": "Audexa - Hybrid Enterprise ERP Fraud Engine",
   "main": "server.js",
-  "scripts": { "start": "node server.js", "dev": "node server.js", "seed": "node scripts/seed.js" },
+  "scripts": { "start": "node server.js", "dev": "node server.js" },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

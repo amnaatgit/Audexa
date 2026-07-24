@@ -6,8 +6,8 @@ agent over the Model Context Protocol (Tier 2). Fully persistent, authenticated,
 continuously evaluated, and audited.
 
 ## What makes it real (not a demo)
-1. **Persistence** — SQLite stores every invoice, learned weight, trace, verdict,
-   and audit entry. Everything survives restarts.
+1. **Persistence** — Postgres stores every invoice, learned weight, trace,
+   verdict, and audit entry.
 2. **Trained ML model** — an Isolation Forest (100 trees, built from scratch)
    trains on invoice history and contributes a real anomaly signal to Tier 1.
 3. **Computed evaluation** — precision, recall, F1, AUPRC and a confusion matrix
@@ -29,25 +29,36 @@ spikes, duplicates, velocity, bill-to/ship-from geo mismatch — microseconds,
 → everything logged to the immutable audit trail.
 
 ## Run locally
+Requires a Postgres instance (local, or a free hosted one like Neon).
 Terminal 1:
     cd backend
     npm install
-    npm run seed     # optional: populate 80 invoices + first evaluation
-    npm start        # → :3000
+    DATABASE_URL=postgres://... JWT_SECRET=dev-secret npm start   # → :3000
+    # weights/users/first evaluation are seeded automatically on boot
 Terminal 2:
     cd frontend
     npm install
     npm run dev      # → :5173
 
-Login with  auditor / auditor123  or  admin / admin123.
+Login with  auditor / audit123  or  admin / admin123.
 
-## Deploy
-Backend → Railway: Root = backend. Add a persistent Volume mounted at
-/app/backend/db (or set DB_PATH) so the SQLite file survives redeploys.
-Env vars: JWT_SECRET (any random string), and optionally ANTHROPIC_API_KEY
-to run Tier-2 audits through Claude instead of the clause-matcher agent.
-Frontend → Vercel: Root = frontend, Framework = Vite, Output = dist,
-env VITE_API_URL = your Railway URL (no trailing slash).
+## Deploy (Vercel, single project)
+This repo deploys as one Vercel project via the root `vercel.json`
+(backend as a Node serverless function, frontend as a static Vite build —
+both served from the same domain, so no VITE_API_URL is needed).
+
+Required environment variables (set in the Vercel project's Settings →
+Environment Variables before deploying):
+- `DATABASE_URL` — a serverless-friendly Postgres connection string
+  (e.g. Vercel Postgres, or Neon/Supabase's **pooled** connection string —
+  a serverless function opens a fresh connection per invocation, so a
+  non-pooled direct connection will exhaust Postgres's connection limit).
+- `JWT_SECRET` — any random string, used to sign login tokens.
+- `ANTHROPIC_API_KEY` (optional) — runs Tier-2 audits through Claude
+  instead of the built-in clause-matcher agent.
+
+Import the repo in Vercel, add those env vars, and deploy — no other
+project configuration is needed, `vercel.json` handles the build/routes.
 
 ## The 8 tabs
 Dashboard · Invoice Sandbox · Live Monitor · Compliance Bureau ·

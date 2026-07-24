@@ -123,3 +123,5 @@ app.get('/api/audit-log', auth.authMiddleware, (req,res)=>res.json({ entries:aut
 app.get('/health', (req,res)=>res.json({ status:'ok', service:'SentinelAI ERP Fraud Engine v4' }))
 const PORT = process.env.PORT||3000
 app.listen(PORT, ()=>console.log(`🛡️  SentinelAI ERP Fraud Engine v4 on :${PORT}`))
+
+module.exports = app;

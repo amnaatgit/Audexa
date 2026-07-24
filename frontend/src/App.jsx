@@ -441,7 +441,7 @@ function Login({ onLogin }){
       <div className="login-card">
         <div className="login-top">
           <div className="login-icon">🛡️</div>
-          <div className="login-title">SentinelAI</div>
+          <div className="login-title">Audexa</div>
           <div className="login-sub">ERP Fraud Engine · Compliance Console</div>
         </div>
         <div className="login-body">
@@ -573,7 +573,7 @@ export default function App(){
       <aside className="side">
         <div className="side-logo">
           <div className="side-icon">🛡️</div>
-          <div><div className="side-name">SentinelAI</div><div className="side-sub">ERP Fraud Engine</div></div>
+          <div><div className="side-name">Audexa</div><div className="side-sub">ERP Fraud Engine</div></div>
         </div>
         <nav className="side-nav">
           <div className="snav-label">Operations</div>

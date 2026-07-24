@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.vercel/
+*.log
+.env
+.env.local
+backend/db/*.db
+backend/db/*.db-journal
+backend/db/*.db-wal
+backend/db/*.db-shm

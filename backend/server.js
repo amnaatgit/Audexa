@@ -1,6 +1,6 @@
 /**
- * SentinelAI — Hybrid Enterprise ERP Fraud Engine (v4)
- * Persistent (SQLite) · ML-backed (Isolation Forest) · Evaluable · Authenticated
+ * Audexa — Hybrid Enterprise ERP Fraud Engine (v4)
+ * Persistent (Postgres) · ML-backed (Isolation Forest) · Evaluable · Authenticated
  */
 const express = require('express')
 const cors = require('cors')
@@ -14,13 +14,18 @@ const app = express()
 app.use(cors());
 app.use(express.json());
 
-// boot: load persisted state, train forest, seed users, run first eval
-(async()=>{ await scoring.init() })()
-auth.seedUsers()
-auth.logAction('system','server_start')
-
-let idSeq = (db.prepare("SELECT MAX(CAST(SUBSTR(id,4) AS INTEGER)) m FROM invoices").get().m) || 4000
+let idSeq = 4000
 const VIDS = Object.keys(VENDORS)
+
+// boot: load persisted state, train forest, seed users, run first eval
+const ready = (async () => {
+  await scoring.init()
+  await auth.seedUsers()
+  await auth.logAction('system', 'server_start')
+  const idRows = await db.prepare("SELECT id FROM invoices").all()
+  idSeq = idRows.reduce((max, r) => Math.max(max, Number(r.id.slice(3)) || 0), 4000)
+})()
+ready.catch(err => console.error('[boot] initialization failed', err))
 
 function randomInvoice(){
   const risky = Math.random()<0.25
@@ -36,9 +41,10 @@ function randomInvoice(){
 const insInvoice = db.prepare(`INSERT INTO invoices (id,ts,vendorId,vendorName,category,invoiceRef,amount,billFrom,shipFrom,hour,lineItems,score,tier1Score,tier1Ms,decision,factors,audit,reviewStatus) VALUES (@id,@ts,@vendorId,@vendorName,@category,@invoiceRef,@amount,@billFrom,@shipFrom,@hour,@lineItems,@score,@tier1Score,@tier1Ms,@decision,@factors,@audit,@reviewStatus)`)
 
 async function processInvoice(input){
+  await ready
   const result = await scoring.scoreInvoice(input)
   const record = { id:'AP-'+(++idSeq), ts:new Date().toISOString(), ...input, ...result }
-  insInvoice.run({
+  await insInvoice.run({
     id:record.id, ts:record.ts, vendorId:record.vendorId, vendorName:record.vendorName, category:record.category,
     invoiceRef:record.invoiceRef, amount:record.amount, billFrom:record.billFrom, shipFrom:record.shipFrom, hour:record.hour,
     lineItems:JSON.stringify(record.lineItems), score:record.score, tier1Score:record.tier1Score, tier1Ms:record.tier1Ms,
@@ -50,11 +56,11 @@ async function processInvoice(input){
 function rowToInvoice(r){ return { ...r, lineItems:JSON.parse(r.lineItems||'[]'), factors:JSON.parse(r.factors||'[]'), audit:r.audit?JSON.parse(r.audit):null } }
 
 /* ── Public: auth ── */
-app.post('/api/login', (req,res)=>{
+app.post('/api/login', async (req,res)=>{
   const { username, password } = req.body
-  const r = auth.login(username, password)
-  if (!r) { auth.logAction(username||'unknown','login_failed'); return res.status(401).json({ error:'Invalid credentials' }) }
-  auth.logAction(r.user.username,'login_success')
+  const r = await auth.login(username, password)
+  if (!r) { await auth.logAction(username||'unknown','login_failed'); return res.status(401).json({ error:'Invalid credentials' }) }
+  await auth.logAction(r.user.username,'login_success')
   res.json(r)
 })
 
@@ -68,19 +74,19 @@ app.post('/api/score', async (req,res)=>{
     hour:Number(t.hour??11), lineItems:Array.isArray(t.lineItems)?t.lineItems:[] }))
 })
 app.post('/api/simulate', async (req,res)=>res.json(await processInvoice(randomInvoice())))
-app.get('/api/transactions', (req,res)=>res.json(db.prepare('SELECT * FROM invoices ORDER BY ts DESC LIMIT ?').all(Number(req.query.limit)||40).map(rowToInvoice)))
+app.get('/api/transactions', async (req,res)=>res.json((await db.prepare('SELECT * FROM invoices ORDER BY ts DESC LIMIT ?').all(Number(req.query.limit)||40)).map(rowToInvoice)))
 app.get('/api/vendors', (req,res)=>res.json(Object.entries(VENDORS).map(([id,v])=>({ id, ...v, contract:CONTRACTS[id] }))))
 app.get('/api/line-items', (req,res)=>res.json(LINE_ITEMS))
-app.get('/api/model', (req,res)=>res.json(scoring.getModelInfo()))
-app.get('/api/telemetry', (req,res)=>res.json(scoring.getTelemetry()))
-app.get('/api/evaluation', (req,res)=>res.json(scoring.getLastEval()))
-app.get('/api/feedback-history', (req,res)=>res.json(scoring.getFeedbackHistory()))
+app.get('/api/model', async (req,res)=>res.json(await scoring.getModelInfo()))
+app.get('/api/telemetry', async (req,res)=>res.json(await scoring.getTelemetry()))
+app.get('/api/evaluation', async (req,res)=>res.json(await scoring.getLastEval()))
+app.get('/api/feedback-history', async (req,res)=>res.json(await scoring.getFeedbackHistory()))
 app.post('/mcp', async (req,res)=>res.json(await mcp.handle(req.body)))
 
-app.get('/api/review-queue', (req,res)=>res.json(db.prepare("SELECT * FROM invoices WHERE reviewStatus='pending' ORDER BY ts DESC LIMIT 30").all().map(rowToInvoice)))
+app.get('/api/review-queue', async (req,res)=>res.json((await db.prepare("SELECT * FROM invoices WHERE reviewStatus='pending' ORDER BY ts DESC LIMIT 30").all()).map(rowToInvoice)))
 
-app.get('/api/stats', (req,res)=>{
-  const all = db.prepare('SELECT * FROM invoices').all().map(rowToInvoice)
+app.get('/api/stats', async (req,res)=>{
+  const all = (await db.prepare('SELECT * FROM invoices').all()).map(rowToInvoice)
   const total=all.length, blocked=all.filter(t=>t.decision==='BLOCKED').length, review=all.filter(t=>t.decision==='REVIEW').length, approved=all.filter(t=>t.decision==='APPROVED').length
   const avgScore=total?Math.round(all.reduce((a,t)=>a+t.score,0)/total):0
   const buckets=[0,0,0,0,0]; all.forEach(t=>buckets[Math.min(4,Math.floor(t.score/20))]++)
@@ -95,33 +101,34 @@ app.get('/api/stats', (req,res)=>{
 
 /* ── Protected: verdicts, tuning, retrain, audit log (require JWT) ── */
 app.post('/api/review/:id', auth.authMiddleware, async (req,res)=>{
-  const item = db.prepare("SELECT * FROM invoices WHERE id=? AND reviewStatus='pending'").get(req.params.id)
+  const item = await db.prepare("SELECT * FROM invoices WHERE id=? AND reviewStatus='pending'").get(req.params.id)
   if (!item) return res.status(404).json({ error:'Not found' })
   const fraud = !!req.body.fraud
-  db.prepare('UPDATE invoices SET reviewStatus=? WHERE id=?').run(fraud?'confirmed_fraud':'legitimate', item.id)
+  await db.prepare('UPDATE invoices SET reviewStatus=? WHERE id=?').run(fraud?'confirmed_fraud':'legitimate', item.id)
   const val = await scoring.applyFeedback(JSON.parse(item.factors), fraud, req.user.username, item.id)
-  auth.logAction(req.user.username, fraud?'verdict_fraud':'verdict_legit', item.id, `score=${item.score} precisionΔ=${val.before}->${val.after}`)
+  await auth.logAction(req.user.username, fraud?'verdict_fraud':'verdict_legit', item.id, `score=${item.score} precisionΔ=${val.before}->${val.after}`)
   res.json({ ok:true, validation:val })
 })
-app.post('/api/thresholds', auth.authMiddleware, (req,res)=>{
-  const ok=scoring.setThresholds(Number(req.body.review),Number(req.body.block))
-  if (ok) auth.logAction(req.user.username,'set_thresholds',null,`review=${req.body.review} block=${req.body.block}`)
+app.post('/api/thresholds', auth.authMiddleware, async (req,res)=>{
+  const ok=await scoring.setThresholds(Number(req.body.review),Number(req.body.block))
+  if (ok) await auth.logAction(req.user.username,'set_thresholds',null,`review=${req.body.review} block=${req.body.block}`)
   res.json({ ok })
 })
 app.post('/api/retrain', auth.authMiddleware, async (req,res)=>{
-  const f=scoring.trainForest(); const ev=await scoring.runEvaluation(400)
-  auth.logAction(req.user.username,'retrain_model',null,`AUPRC=${ev.auprc.toFixed(3)}`)
+  const f=await scoring.trainForest(); const ev=await scoring.runEvaluation(400)
+  await auth.logAction(req.user.username,'retrain_model',null,`AUPRC=${ev.auprc.toFixed(3)}`)
   res.json({ forest:f, evaluation:ev })
 })
 app.post('/api/evaluate', auth.authMiddleware, async (req,res)=>{
   const ev=await scoring.runEvaluation(Number(req.body.n)||400)
-  auth.logAction(req.user.username,'run_evaluation',null,`P=${ev.operating.precision.toFixed(3)} R=${ev.operating.recall.toFixed(3)}`)
+  await auth.logAction(req.user.username,'run_evaluation',null,`P=${ev.operating.precision.toFixed(3)} R=${ev.operating.recall.toFixed(3)}`)
   res.json(ev)
 })
-app.get('/api/audit-log', auth.authMiddleware, (req,res)=>res.json({ entries:auth.getAuditLog(60), integrity:auth.verifyAuditChain() }))
+app.get('/api/audit-log', auth.authMiddleware, async (req,res)=>res.json({ entries: await auth.getAuditLog(60), integrity: await auth.verifyAuditChain() }))
 
-app.get('/health', (req,res)=>res.json({ status:'ok', service:'SentinelAI ERP Fraud Engine v4' }))
+app.get('/health', (req,res)=>res.json({ status:'ok', service:'Audexa ERP Fraud Engine v4' }))
 const PORT = process.env.PORT||3000
-app.listen(PORT, ()=>console.log(`🛡️  SentinelAI ERP Fraud Engine v4 on :${PORT}`))
-
-module.exports = app;
+if (require.main === module) {
+  ready.then(() => app.listen(PORT, ()=>console.log(`🛡️  Audexa ERP Fraud Engine v4 on :${PORT}`)))
+}
+module.exports = app

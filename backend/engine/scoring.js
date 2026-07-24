@@ -1,8 +1,8 @@
 /**
- * SentinelAI Hybrid Scoring Orchestrator — persistent, ML-backed, evaluable.
+ * Audexa Hybrid Scoring Orchestrator — persistent, ML-backed, evaluable.
  *  Tier 1: rules ensemble + TRAINED Isolation Forest anomaly model
  *  Tier 2: MCP contract-audit orchestration (see mcp/auditServer.js)
- *  Persistence: weights, traces, telemetry all in SQLite
+ *  Persistence: weights, traces, telemetry all in Postgres (async db facade)
  *  Evaluation: computes precision/recall/AUPRC on a labelled test set
  */
 const { RULES } = require('./rules')
@@ -15,46 +15,46 @@ const { evaluate } = require('../ml/metrics')
 
 /* ── Weights: load from DB or seed from rule defaults ── */
 const weights = {}
-function loadWeights(){
-  const rows = db.prepare('SELECT ruleId, currentWeight FROM weights').all()
+async function loadWeights(){
+  const rows = await db.prepare('SELECT ruleId, currentWeight FROM weights').all()
   if (rows.length){ rows.forEach(r => weights[r.ruleId] = r.currentWeight) }
   else {
     const ins = db.prepare('INSERT INTO weights (ruleId, baseWeight, currentWeight) VALUES (?,?,?)')
-    RULES.forEach(r => { weights[r.id] = r.weight; ins.run(r.id, r.weight, r.weight) })
+    for (const r of RULES){ weights[r.id] = r.weight; await ins.run(r.id, r.weight, r.weight) }
   }
   // ML anomaly weight is a tunable too
-  const mlRow = db.prepare("SELECT currentWeight FROM weights WHERE ruleId='ml_anomaly'").get()
-  if (!mlRow){ db.prepare('INSERT INTO weights (ruleId, baseWeight, currentWeight) VALUES (?,?,?)').run('ml_anomaly',20,20); weights['ml_anomaly']=20 }
+  const mlRow = await db.prepare("SELECT currentWeight FROM weights WHERE ruleId='ml_anomaly'").get()
+  if (!mlRow){ await db.prepare('INSERT INTO weights (ruleId, baseWeight, currentWeight) VALUES (?,?,?)').run('ml_anomaly',20,20); weights['ml_anomaly']=20 }
   else weights['ml_anomaly'] = mlRow.currentWeight
 }
-function saveWeight(id){ db.prepare('UPDATE weights SET currentWeight=? WHERE ruleId=?').run(weights[id], id) }
+async function saveWeight(id){ await db.prepare('UPDATE weights SET currentWeight=? WHERE ruleId=?').run(weights[id], id) }
 
 /* ── Isolation Forest: train on synthetic history, persist metadata ── */
 let forest = new IsolationForest({ nTrees:100, sampleSize:256 })
 let forestMeta = { trained:false }
-function trainForest(){
+async function trainForest(){
   const data = generate(800, 0.12)
   const X = data.map(inv => featureVector(inv, VENDORS[inv.vendorId]?.avgInvoice || 5000))
   forest.fit(X)
   forestMeta = { trained:true, trainedOn:forest.trainedOn, nTrees:forest.nTrees, sampleSize:forest.sampleSize, at:new Date().toISOString() }
-  db.prepare('INSERT OR REPLACE INTO meta (k,v) VALUES (?,?)').run('forest', JSON.stringify(forestMeta))
+  await db.prepare('INSERT OR REPLACE INTO meta (k,v) VALUES (?,?)').run('forest', JSON.stringify(forestMeta))
   return forestMeta
 }
 
 const model = { version:'4.0.0', labeledSamples:0, confirmedFraud:0, falsePositives:0, lastAdjustment:null, tier2Calls:0 }
-function loadModelMeta(){
-  const m = db.prepare("SELECT v FROM meta WHERE k='model'").get()
+async function loadModelMeta(){
+  const m = await db.prepare("SELECT v FROM meta WHERE k='model'").get()
   if (m) Object.assign(model, JSON.parse(m.v))
-  const f = db.prepare("SELECT v FROM meta WHERE k='forest'").get()
+  const f = await db.prepare("SELECT v FROM meta WHERE k='forest'").get()
   if (f) forestMeta = JSON.parse(f.v)
 }
-function saveModelMeta(){ db.prepare('INSERT OR REPLACE INTO meta (k,v) VALUES (?,?)').run('model', JSON.stringify(model)) }
+async function saveModelMeta(){ await db.prepare('INSERT OR REPLACE INTO meta (k,v) VALUES (?,?)').run('model', JSON.stringify(model)) }
 
 const THRESHOLDS = { review:40, block:70 }
-function loadThresholds(){ const t=db.prepare("SELECT v FROM meta WHERE k='thresholds'").get(); if(t) Object.assign(THRESHOLDS, JSON.parse(t.v)) }
-function setThresholds(review, block){
+async function loadThresholds(){ const t=await db.prepare("SELECT v FROM meta WHERE k='thresholds'").get(); if(t) Object.assign(THRESHOLDS, JSON.parse(t.v)) }
+async function setThresholds(review, block){
   if (review>=10 && block>review && block<=95){ THRESHOLDS.review=review; THRESHOLDS.block=block
-    db.prepare('INSERT OR REPLACE INTO meta (k,v) VALUES (?,?)').run('thresholds', JSON.stringify(THRESHOLDS)); return true }
+    await db.prepare('INSERT OR REPLACE INTO meta (k,v) VALUES (?,?)').run('thresholds', JSON.stringify(THRESHOLDS)); return true }
   return false
 }
 
@@ -109,7 +109,7 @@ async function scoreInvoice(inv, persist=true){
       factors.push({ id:'t2_'+f.item.slice(0,14).replace(/\W/g,'_'), name:`Contract Violation: ${f.item}`, severity:f.severity==='high'?1:0.6, weight:pts, contribution:pts, explain:`${f.verdict} — "${f.clause}"`, tier:2 })
     }
     if (res.trace && persist){
-      db.prepare('INSERT INTO traces (ts,invoiceRef,vendor,totalMs,tokensIn,tokensOut,costUSD,spans,engine) VALUES (?,?,?,?,?,?,?,?,?)')
+      await db.prepare('INSERT INTO traces (ts,invoiceRef,vendor,totalMs,tokensIn,tokensOut,costUSD,spans,engine) VALUES (?,?,?,?,?,?,?,?,?)')
         .run(Date.now(), inv.invoiceRef, res.trace.vendor, res.trace.totalMs, res.trace.tokens.in, res.trace.tokens.out, res.trace.costUSD, JSON.stringify(res.trace.spans), res.engine)
     }
   }
@@ -143,48 +143,50 @@ async function runEvaluation(n=400){
     reviewLevel: atReview,        // metrics at the review threshold
     auprc: atBlock.auprc,
   }
-  db.prepare('INSERT OR REPLACE INTO meta (k,v) VALUES (?,?)').run('lastEval', JSON.stringify(result))
+  await db.prepare('INSERT OR REPLACE INTO meta (k,v) VALUES (?,?)').run('lastEval', JSON.stringify(result))
   return result
 }
-function getLastEval(){ const r=db.prepare("SELECT v FROM meta WHERE k='lastEval'").get(); return r?JSON.parse(r.v):null }
+async function getLastEval(){ const r=await db.prepare("SELECT v FROM meta WHERE k='lastEval'").get(); return r?JSON.parse(r.v):null }
 
 /* ── GAP 4: feedback that VALIDATES itself (before/after precision) ── */
 async function applyFeedback(factors, confirmedFraud, actor='auditor', invoiceId=null){
   // measure precision before
-  const before = getLastEval()?.operating?.precision ?? null
+  const beforeEval = await getLastEval()
+  const before = beforeEval?.operating?.precision ?? null
   const delta = confirmedFraud ? +0.4 : -0.4
   for (const f of factors){
     if (f.tier!==1) continue
     weights[f.id] = Math.max(2, Math.min(30, +(weights[f.id]+delta*f.severity).toFixed(2)))
-    saveWeight(f.id)
+    await saveWeight(f.id)
   }
   model.labeledSamples++; confirmedFraud?model.confirmedFraud++:model.falsePositives++
-  model.lastAdjustment = new Date().toISOString(); saveModelMeta()
+  model.lastAdjustment = new Date().toISOString(); await saveModelMeta()
   // re-evaluate to prove the loop helps (or not)
   const evalAfter = await runEvaluation(300)
   const after = evalAfter.operating.precision
-  db.prepare('INSERT INTO feedback_events (ts,actor,invoiceId,verdict,precisionBefore,precisionAfter) VALUES (?,?,?,?,?,?)')
+  await db.prepare('INSERT INTO feedback_events (ts,actor,invoiceId,verdict,precisionBefore,precisionAfter) VALUES (?,?,?,?,?,?)')
     .run(new Date().toISOString(), actor, invoiceId, confirmedFraud?'fraud':'legit', before, after)
   return { before, after }
 }
-function getFeedbackHistory(){ return db.prepare('SELECT * FROM feedback_events ORDER BY id DESC LIMIT 20').all() }
+async function getFeedbackHistory(){ return db.prepare('SELECT * FROM feedback_events ORDER BY id DESC LIMIT 20').all() }
 
-function getModelInfo(){
+async function getModelInfo(){
   return {
     ...model, thresholds:{...THRESHOLDS},
     forest: forestMeta,
     rules: [...RULES.map(r=>({ id:r.id, name:r.name, baseWeight:r.weight, currentWeight:+(weights[r.id]||r.weight).toFixed(2) })),
             { id:'ml_anomaly', name:'Isolation Forest Anomaly', baseWeight:20, currentWeight:+(weights['ml_anomaly']||20).toFixed(2) }],
     mcpTools: mcp.TOOLS.map(t=>({ name:t.name, description:t.description })),
-    evaluation: getLastEval(),
+    evaluation: await getLastEval(),
   }
 }
-function getTelemetry(){
+async function getTelemetry(){
   const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0
-  const rows = db.prepare('SELECT * FROM traces ORDER BY id DESC LIMIT 40').all()
+  const rows = await db.prepare('SELECT * FROM traces ORDER BY id DESC LIMIT 40').all()
   const t2ms=rows.map(r=>r.totalMs), costs=rows.map(r=>r.costUSD)
   const toks=rows.reduce((a,r)=>({in:a.in+r.tokensIn,out:a.out+r.tokensOut}),{in:0,out:0})
-  const totalInv = db.prepare('SELECT COUNT(*) n FROM invoices').get().n || tier1Lat.length
+  const totalInvRow = await db.prepare('SELECT COUNT(*) n FROM invoices').get()
+  const totalInv = Number(totalInvRow?.n) || tier1Lat.length
   return {
     tier1:{ avgMs:+avg(tier1Lat).toFixed(3), samples:tier1Lat.length },
     tier2:{ avgMs:+avg(t2ms).toFixed(1), calls:rows.length, avgCostUSD:+avg(costs).toFixed(6), totalCostUSD:+costs.reduce((a,b)=>a+b,0).toFixed(6), tokens:toks },
@@ -195,8 +197,8 @@ function getTelemetry(){
 
 /* ── boot ── */
 async function init(){
-  loadWeights(); loadModelMeta(); loadThresholds()
-  trainForest()   // rebuild in-memory forest each boot; metadata persists
+  await loadWeights(); await loadModelMeta(); await loadThresholds()
+  await trainForest()   // rebuild in-memory forest each boot; metadata persists
   await runEvaluation(400)   // always compute fresh metrics against current weights
 }
 

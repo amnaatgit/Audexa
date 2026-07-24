@@ -1,4 +1,4 @@
-# 🛡️ SentinelAI — Hybrid Enterprise ERP Fraud Engine (v4)
+# 🛡️ Audexa — Hybrid Enterprise ERP Fraud Engine (v4)
 
 Production-grade B2B invoice fraud detection: a two-tier engine combining a
 trained ML anomaly model + statistical rules (Tier 1) with an LLM contract-audit

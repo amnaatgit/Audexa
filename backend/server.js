@@ -57,7 +57,8 @@ function rowToInvoice(r){ return { ...r, lineItems:JSON.parse(r.lineItems||'[]')
 
 /* ── Public: auth ── */
 app.post('/api/login', async (req,res)=>{
-  const { username, password } = req.body
+  await ready
+      const { username, password } = req.body
   const r = await auth.login(username, password)
   if (!r) { await auth.logAction(username||'unknown','login_failed'); return res.status(401).json({ error:'Invalid credentials' }) }
   await auth.logAction(r.user.username,'login_success')

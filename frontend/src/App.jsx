@@ -45,7 +45,7 @@ function Donut({ approved, review, blocked }){
 /* ══ DASHBOARD ══ */
 function Dashboard({ go }){
   const [s,setS]=useState(null)
-  const load=useCallback(async()=>setS(await api.stats()),[])
+  const load=useCallback(()=>api.stats().then(setS).catch(()=>{}),[])
   useEffect(()=>{load();const t=setInterval(load,3000);return()=>clearInterval(t)},[load])
   if(!s) return null
   const threatPct=s.total?(s.blocked+s.review)/s.total:0
@@ -205,7 +205,7 @@ function Sandbox(){
 function Monitor(){
   const [txns,setTxns]=useState([]); const [filter,setFilter]=useState('ALL')
   const [running,setRunning]=useState(false); const timer=useRef(null)
-  const refresh=useCallback(async()=>setTxns(await api.txns(60)),[])
+  const refresh=useCallback(()=>api.txns(60).then(setTxns).catch(()=>{}),[])
   useEffect(()=>{refresh()},[refresh])
   useEffect(()=>{
     if(running) timer.current=setInterval(async()=>{await api.simulate();refresh()},1500)
@@ -242,7 +242,7 @@ function Monitor(){
 /* ══ REVIEW (Compliance Oversight Bureau) ══ */
 function ReviewQueue(){
   const [queue,setQueue]=useState([]); const [labelled,setLabelled]=useState(0)
-  const load=async()=>setQueue(await api.queue())
+  const load=()=>api.queue().then(setQueue).catch(()=>{})
   useEffect(()=>{load()},[])
   const [lastVal,setLastVal]=useState(null)
   const decide=async(id,fraud)=>{
@@ -288,7 +288,7 @@ function ReviewQueue(){
 function ModelPage(){
   const [m,setM]=useState(null); const [thr,setThr]=useState(null)
   useEffect(()=>{
-    const load=()=>api.model().then(d=>{setM(d);setThr(t=>t||{review:d.thresholds.review,block:d.thresholds.block})})
+    const load=()=>api.model().then(d=>{setM(d);setThr(t=>t||{review:d.thresholds.review,block:d.thresholds.block})}).catch(()=>{})
     load(); const t=setInterval(load,3500); return()=>clearInterval(t)
   },[])
   if(!m||!thr) return null

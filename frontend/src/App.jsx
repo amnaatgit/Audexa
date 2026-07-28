@@ -344,12 +344,12 @@ function ModelPage(){
           </div>
         </div>
         <div className="card">
-          <div className="card-h"><div><div className="card-t">Backtest Metrics</div><div className="card-s">{m.metrics.note}</div></div></div>
+          <div className="card-h"><div><div className="card-t">Backtest Metrics</div><div className="card-s">{(m.evaluation?`Computed on ${m.evaluation.n} labelled invoices at threshold ${m.evaluation.operating.threshold}`:'No evaluation yet')}</div></div></div>
           <div className="card-b" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
-            <div className="metric-big"><b>{m.metrics.precision}</b><span>Precision</span></div>
-            <div className="metric-big"><b>{m.metrics.recall}</b><span>Recall</span></div>
-            <div className="metric-big"><b>{m.metrics.auprc}</b><span>AUPRC</span></div>
-            <div className="metric-big"><b>{m.metrics.f1}</b><span>F1</span></div>
+            <div className="metric-big"><b>{(m.evaluation?m.evaluation.operating.precision.toFixed(3):'—')}</b><span>Precision</span></div>
+            <div className="metric-big"><b>{(m.evaluation?m.evaluation.operating.recall.toFixed(3):'—')}</b><span>Recall</span></div>
+            <div className="metric-big"><b>{(m.evaluation?m.evaluation.auprc.toFixed(3):'—')}</b><span>AUPRC</span></div>
+            <div className="metric-big"><b>{(m.evaluation?m.evaluation.operating.f1.toFixed(3):'—')}</b><span>F1</span></div>
           </div>
         </div>
       </div>
@@ -453,7 +453,7 @@ function Login({ onLogin }){
           <button className="login-btn" onClick={submit} disabled={busy}>{busy?'Authenticating…':'Sign In'}</button>
           <div className="login-demo">
             Demo accounts:<br/>
-            <b>auditor / auditor123</b> — review verdicts<br/>
+            <b>auditor / audit123</b> — review verdicts<br/>
             <b>admin / admin123</b> — tuning, retrain, audit log
           </div>
         </div>
@@ -494,7 +494,7 @@ function Evaluation(){
             <div className="cm-cell tn"><div className="cm-v" style={{color:'#67e8f9'}}>{o.tn}</div><div className="cm-l">True Negative</div></div>
           </div>
           <div className="thr-note" style={{marginTop:16,textAlign:'center'}}>
-            {o.positives} actual fraud cases in {e.n} invoices ({Math.round(o.positives/e.n*100)}% base rate — realistic imbalance)
+            {o.tp+o.fn} actual fraud cases in {e.n} invoices ({Math.round((o.tp+o.fn)/e.n*100)}% base rate — realistic imbalance)
           </div>
         </div>
       </div>
@@ -529,7 +529,7 @@ function AuditLog(){
     <div className="card">
       <div className="card-h">
         <div><div className="card-t">Immutable Audit Trail</div><div className="card-s">Every verdict, tuning change, and login — SHA-256 hash-chained</div></div>
-        <span className="integ-ok">🔒 {d.integrity.valid?`Chain verified · ${d.integrity.entries} entries`:'⚠ CHAIN BROKEN'}</span>
+        <span className="integ-ok">🔒 {d.integrity.valid?`Chain verified · ${d.integrity.checkedEntries} entries`:'⚠ CHAIN BROKEN'}</span>
       </div>
       <div style={{maxHeight:560,overflowY:'auto'}}>
         <div className="audit-row" style={{fontWeight:700,color:'var(--muted2)',fontSize:10.5,textTransform:'uppercase',letterSpacing:'.06em'}}>
@@ -540,7 +540,7 @@ function AuditLog(){
             <span className="audit-ts">{new Date(en.ts).toLocaleString()}</span>
             <span className={`audit-action ${en.action.includes('fraud')||en.action.includes('fail')?'danger':''}`}>{en.action}</span>
             <div>
-              <div style={{fontSize:12}}><b>{en.actor}</b>{en.target?` · ${en.target}`:''}{en.detail?` · ${en.detail}`:''}</div>
+              <div style={{fontSize:12}}><b>{en.actor}</b>{en.invoiceId?` · ${en.invoiceId}`:''}{en.detail?` · ${en.detail}`:''}</div>
               <div className="audit-hash">{en.hash.slice(0,32)}…</div>
             </div>
           </div>
@@ -584,7 +584,7 @@ export default function App(){
           {NAV.slice(7).map(([id,ico,l])=><button key={id} className={`snav ${tab===id?'on':''}`} onClick={()=>setTab(id)}><span className="ico">{ico}</span>{l}</button>)}
         </nav>
         <div className="side-foot">
-          <div className="engine-pill"><span className="eng-dot"/><div><div className="eng-txt">Hybrid Engine Online</div><div className="eng-sub">SQLite · Isolation Forest · MCP</div></div></div>
+          <div className="engine-pill"><span className="eng-dot"/><div><div className="eng-txt">Hybrid Engine Online</div><div className="eng-sub">Postgres · Isolation Forest · MCP</div></div></div>
         </div>
       </aside>
       <main className="main">
@@ -595,7 +595,7 @@ export default function App(){
             <button className="logout-btn" onClick={logout}>Sign out</button>
           </div>
         </div>
-        {tab==='dashboard'&&<Dashboard go={setTab}/>}
+        <select className="mobile-nav" value={tab} onChange={e=>setTab(e.target.value)}>{NAV.map(([id,ico,l])=><option key={id} value={id}>{ico} {l}</option>)}</select>{tab==='dashboard'&&<Dashboard go={setTab}/>}
         {tab==='sandbox'&&<Sandbox/>}
         {tab==='monitor'&&<Monitor/>}
         {tab==='queue'&&<ReviewQueue/>}

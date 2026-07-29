@@ -9,7 +9,7 @@ const crypto = require('crypto')
 const db = require('./database')
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-insecure-secret-change-me'
-if (!process.env.JWT_SECRET) console.warn('[auth] JWT_SECRET not set — using an insecure dev default. Set JWT_SECRET in production.')
+if (!process.env.JWT_SECRET) { if (process.env.NODE_ENV === 'production') throw new Error('[auth] JWT_SECRET must be set in production — refusing to start with an insecure default'); console.warn('[auth] JWT_SECRET not set — using an insecure dev default (dev only).') }
 const TOKEN_TTL = '8h'
 
 const DEFAULT_USERS = [
@@ -73,4 +73,4 @@ async function verifyAuditChain() {
   return { valid: true, brokenAt: null, checkedEntries: rows.length }
 }
 
-module.exports = { seedUsers, login, authMiddleware, logAction, getAuditLog, verifyAuditChain }
+function requireAdmin(req, res, next) { if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Admin role required' }); next() }module.exports = { seedUsers, login, authMiddleware, requireAdmin, logAction, getAuditLog, verifyAuditChain }

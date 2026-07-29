@@ -101,7 +101,7 @@ app.get('/api/stats', async (req,res)=>{
 })
 
 /* ── Protected: verdicts, tuning, retrain, audit log (require JWT) ── */
-app.post('/api/review/:id', auth.authMiddleware, async (req,res)=>{
+app.post('/api/review/:id', auth.authMiddleware, auth.requireAdmin, async (req,res)=>{
   const item = await db.prepare("SELECT * FROM invoices WHERE id=? AND reviewStatus='pending'").get(req.params.id)
   if (!item) return res.status(404).json({ error:'Not found' })
   const fraud = !!req.body.fraud
@@ -110,17 +110,17 @@ app.post('/api/review/:id', auth.authMiddleware, async (req,res)=>{
   await auth.logAction(req.user.username, fraud?'verdict_fraud':'verdict_legit', item.id, `score=${item.score} precisionΔ=${val.before}->${val.after}`)
   res.json({ ok:true, validation:val })
 })
-app.post('/api/thresholds', auth.authMiddleware, async (req,res)=>{
+app.post('/api/thresholds', auth.authMiddleware, auth.requireAdmin, async (req,res)=>{
   const ok=await scoring.setThresholds(Number(req.body.review),Number(req.body.block))
   if (ok) await auth.logAction(req.user.username,'set_thresholds',null,`review=${req.body.review} block=${req.body.block}`)
   res.json({ ok })
 })
-app.post('/api/retrain', auth.authMiddleware, async (req,res)=>{
+app.post('/api/retrain', auth.authMiddleware, auth.requireAdmin, async (req,res)=>{
   const f=await scoring.trainForest(); const ev=await scoring.runEvaluation(400)
   await auth.logAction(req.user.username,'retrain_model',null,`AUPRC=${ev.auprc.toFixed(3)}`)
   res.json({ forest:f, evaluation:ev })
 })
-app.post('/api/evaluate', auth.authMiddleware, async (req,res)=>{
+app.post('/api/evaluate', auth.authMiddleware, auth.requireAdmin, async (req,res)=>{
   const ev=await scoring.runEvaluation(Number(req.body.n)||400)
   await auth.logAction(req.user.username,'run_evaluation',null,`P=${ev.operating.precision.toFixed(3)} R=${ev.operating.recall.toFixed(3)}`)
   res.json(ev)

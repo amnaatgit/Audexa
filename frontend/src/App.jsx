@@ -245,10 +245,10 @@ function ReviewQueue(){
   const load=()=>api.queue().then(setQueue).catch(()=>{})
   useEffect(()=>{load()},[])
   const [lastVal,setLastVal]=useState(null)
-  const decide=async(id,fraud)=>{
+  const decide=async(id,fraud)=>{ try{
     const r=await api.review(id,fraud)
     if(r.validation) setLastVal(r.validation)
-    setLabelled(n=>n+1); load()
+    setLabelled(n=>n+1); load() }catch(err){ alert(err.message || 'Failed to submit verdict') }
   }
   return (<>
     <div className="card" style={{marginBottom:16}}>
@@ -291,7 +291,7 @@ function ModelPage(){
     const load=()=>api.model().then(d=>{setM(d);setThr(t=>t||{review:d.thresholds.review,block:d.thresholds.block})}).catch(()=>{})
     load(); const t=setInterval(load,3500); return()=>clearInterval(t)
   },[])
-  if(!m||!thr) return null
+  if(!m||!thr) return <div className="card"><div className="no-factors" style={{padding:56}}>Loading model & tuning data…</div></div>
   const maxW=Math.max(...m.rules.map(r=>r.currentWeight))
   return (
     <div className="g2">
@@ -325,7 +325,7 @@ function ModelPage(){
               <input type="range" min="10" max={thr.block-5} value={thr.review} onChange={e=>setThr(t=>({...t,review:+e.target.value}))}/></div>
             <div className="field"><div className="flbl"><span>Quarantine threshold</span><b>{thr.block}</b></div>
               <input type="range" min={thr.review+5} max="95" value={thr.block} onChange={e=>setThr(t=>({...t,block:+e.target.value}))}/></div>
-            <button className="btn-sm primary" style={{width:'100%',padding:11}} onClick={()=>api.thresholds(thr)}>Apply Thresholds</button>
+            <button className="btn-sm primary" style={{width:'100%',padding:11}} onClick={()=>api.thresholds(thr).catch(err=>alert(err.message||'Failed to apply thresholds'))}>Apply Thresholds</button>
             <div className="thr-note">Stricter thresholds = tighter security but more vendor friction and auditor workload — the core tuning trade-off in every AP fraud team.</div>
           </div>
         </div>
@@ -365,7 +365,7 @@ function Observability(){
     const load=()=>api.telemetry().then(setT).catch(()=>{})
     load(); const i=setInterval(load,3000); return()=>clearInterval(i)
   },[])
-  if(!t) return null
+  if(!t) return <div className="card"><div className="no-factors" style={{padding:56}}>Loading observability data…</div></div>
   const t1=t.tier1.avgMs, t2=t.tier2.avgMs
   const maxMs=Math.max(t2,1)
   const spanColor={fetch_pdf_contract_terms:'#22d3ee',fetch_historical_line_items:'#2dd4bf',llm_auditor_agent:'#818cf8'}
@@ -433,7 +433,7 @@ function Login({ onLogin }){
       const r=await api.login(u,p)
       if(r.token){ auth.set(r.token); auth.setUser(r.user); onLogin(r.user) }
       else setErr(r.error||'Login failed')
-    }catch{ setErr('Cannot reach server') }
+    }catch(err){ setErr(err.message || 'Cannot reach server') }
     setBusy(false)
   }
   return (
@@ -467,7 +467,7 @@ function Evaluation(){
   const [e,setE]=useState(null); const [busy,setBusy]=useState(false)
   const load=()=>api.evaluation().then(setE).catch(()=>{})
   useEffect(()=>{load()},[])
-  const rerun=async()=>{ setBusy(true); try{ const r=await api.evaluate(500); setE(r) }catch{ alert('Admin login required to re-run evaluation') } setBusy(false) }
+  const rerun=async()=>{ setBusy(true); try{ const r=await api.evaluate(500); setE(r) }catch(err){ alert(err.message || 'Failed to re-run evaluation') } setBusy(false) }
   if(!e) return <div className="card"><div className="no-factors" style={{padding:56}}>No evaluation yet.</div></div>
   const o=e.operating
   return (<>

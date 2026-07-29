@@ -40,4 +40,3 @@ export const api = {
   auditLog:() => fetch(`${BASE}/api/audit-log`,{headers:hdr()}).then(j),
   feedbackHistory:() => fetch(`${BASE}/api/feedback-history`).then(j),
 }
-  }

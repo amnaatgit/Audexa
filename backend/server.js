@@ -10,6 +10,7 @@ const mcp = require('./mcp/auditServer')
 const db = require('./db/database')
 const auth = require('./db/auth')
 
+const loginAttempts = new Map(); function loginThrottle(key){ const now=Date.now(); const rec=loginAttempts.get(key)||{count:0,first:now}; if(now-rec.first>900000){rec.count=0;rec.first=now;} rec.count++; loginAttempts.set(key,rec); return rec.count>10; }
 const app = express()
 app.use(cors());
 app.use(express.json());
@@ -57,6 +58,7 @@ function rowToInvoice(r){ return { ...r, lineItems:JSON.parse(r.lineItems||'[]')
 
 /* ── Public: auth ── */
 app.post('/api/login', async (req,res)=>{
+if (loginThrottle((req.body&&req.body.username)||req.ip||'anon')) return res.status(429).json({ error:'Too many login attempts — try again later' })
   await ready
       const { username, password } = req.body
   const r = await auth.login(username, password)
